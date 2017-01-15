@@ -6,6 +6,8 @@
 [![Coverage Status][ico-coverage]][link-coverage]
 [![Quality Score][ico-code-quality]][link-code-quality]
 
+Directive helps you to manipulate Nginx configurations in PHP with ease.
+
 This package is compliant with [PSR-1], [PSR-2] and [PSR-4].
 If you notice compliance oversights, please send a patch via pull request.
 
@@ -21,21 +23,59 @@ The following versions of PHP are supported by this version.
 * PHP 7.0
 * PHP 7.1
 
-## Install
+## Installation
 
-Via Composer
+### With Composer
 
 ```bash
 $ composer require seiler/directive
 ```
 
-## Usage
+```php
+<?php
+require 'vendor/autoload.php';
+
+use Seiler\Directive;
+```
+
+### Without Composer
+
+Why are you not using [Composer](http://getcomposer.org/)?
+Download [Directive.php](https://github.com/fredericseiler/directive/blob/master/src/Directive.php)
+from the repo and save the file into your project path somewhere.
 
 ```php
-$conf = @file_get_contents('/path/to/nginx/configuration.conf');
+<?php
+require '/path/to/Directive.php';
 
-$directive = \Seiler\Directive\Directive::fromString($conf);
+use Seiler\Directive;
 ```
+
+## Usage
+
+1. Load a Nginx configuration:
+
+```php
+$config = file_get_contents('/path/to/nginx/config/file.conf');
+
+$directive = Directive::fromString($config);
+```
+
+2. Add your changes:
+
+```php
+$directive->server->serverName->value('example.org');
+```
+
+3. Save your changes:
+
+```php
+file_put_contents('/path/to/nginx/config/file.conf', $directive);
+```
+
+## Documentation
+
+*WIP*
 
 ## Testing
 
@@ -61,7 +101,7 @@ If you discover any security related issues, please email frederic@seiler.io ins
 The MIT License (MIT). Please see [License File](LICENSE.md) for more information.
 
 [ico-version]: https://img.shields.io/packagist/v/seiler/directive.svg?style=flat-square
-[ico-license]: https://img.shields.io/badge/license-MIT-brightgreen.svg?style=flat-square
+[ico-license]: https://img.shields.io/packagist/l/seiler/directive.svg?style=flat-square
 [ico-build]: https://img.shields.io/travis/fredericseiler/directive/master.svg?style=flat-square
 [ico-coverage]: https://img.shields.io/scrutinizer/coverage/g/fredericseiler/directive.svg?style=flat-square
 [ico-code-quality]: https://img.shields.io/scrutinizer/g/fredericseiler/directive.svg?style=flat-square

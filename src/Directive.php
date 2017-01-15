@@ -16,10 +16,12 @@ class Directive implements Arrayable, Jsonable
 {
     /** @var  Directive */
     protected $builder;
+
+    /** @var  Collection */
+    public $children;
+
     /** @var  string|null */
     public $comment;
-    /** @var  Collection */
-    public $directives;
 
     /** @var  string|null */
     public $name;
@@ -31,42 +33,16 @@ class Directive implements Arrayable, Jsonable
     public $value;
 
     /**
-     * Directive constructor.
-     *
-     * @param string $string
+     * Constructor.
      */
-    public function __construct($string = '')
+    public function __construct()
     {
-        $this->directives = new Collection;
-
-        if ($string !== '') {
-            $this->load($string);
-        }
+        $this->children = new Collection;
     }
 
     /**
-     * @param  string $method
-     * @param  mixed  $arguments
-     * @return mixed
+     * Get the first child with the specified name.
      *
-     * @throws ErrorException
-     */
-    public function __call($method, $arguments = null)
-    {
-        if (!$this->hasParent()) {
-            throw new ErrorException("Undefined method '$method'");
-        }
-
-        $collection = $this->parent()->children($this->name);
-
-        if (!method_exists($collection, $method)) {
-            throw new ErrorException("Undefined collection method '$method'");
-        }
-
-        return $collection->$method($arguments);
-    }
-
-    /**
      * @param  string $name
      * @return Directive
      *
@@ -74,75 +50,123 @@ class Directive implements Arrayable, Jsonable
      */
     public function __get($name)
     {
-        $name = self::snakeCase($name);
+        $directive = $this->children($name)->first();
 
-        if ($this->has($name)) {
-            return $this->get($name);
+        if ($directive === null) {
+            throw new ErrorException("Undefined directive '" . self::snakeCase($name) . "'");
         }
 
-        throw new ErrorException("Undefined directive '$name'");
+        return $directive;
     }
 
     /**
+     * Convert the directive to a string.
+     *
      * @return string
      */
     public function __toString()
     {
-        return $this->toString();
+        if ($this->name() === null && $this->comment() !== null) {
+            $string = '# ' . $this->comment();
+        } elseif ($this->hasChildren()) {
+            $string = $this->toString();
+        } else {
+            $string = $this->value();
+        }
+
+        return $string;
     }
 
     /**
-     * @param  Directive|null|string $name
-     * @param  null|string           $value
-     * @param  null|string           $comment
-     * @return Directive
+     * Get a collection of directives with the same name and parent.
+     *
+     * @return Collection
      */
-    public function add($name = null, $value = null, $comment = null)
+    public function all()
     {
-        return $this->append($name, $value, $comment);
+        if ($this->hasParent()) {
+            $collection = $this->parent()->children($this->name());
+        } else {
+            $collection = new Collection([$this]);
+        }
+
+        return $collection;
     }
 
     /**
-     * @param  Directive|null|string $directive
-     * @param  null|string           $value
-     * @param  null|string           $comment
+     * Add one or more directives to the stack.
+     *
+     * @param  Collection|array|Directive|string|null $name
+     * @param  string|null                      $value
+     * @param  string|null                      $comment
      * @return Directive
      */
-    public function append($directive = null, $value = null, $comment = null)
+    public function attach($name = null, $value = null, $comment = null)
     {
+        $collection = $directive = $name;
+
+        if (is_array($collection) || $collection instanceof Collection) {
+            foreach ($collection as $directive) {
+                $this->attach($directive);
+            }
+
+            return $this;
+        }
+
         if (!$directive instanceof Directive) {
-            $name = $directive;
-
+            if ($name !== null) {
+                $name = self::snakeCase($name);
+            }
+            
             $directive = new self;
             $directive->setName($name);
             $directive->setValue($value);
             $directive->setComment($comment);
         }
 
-        $directive->setParent($this);
+        $directive->parent = $this;
 
-        $this->directives->push($directive);
+        $this->children->push($directive);
 
         return $this;
     }
 
     /**
-     * @param  null|string $name
+     * Get the directive's children
+     * optionally filtered by name and/or value.
+     *
+     * @param  string|null $name
+     * @param  string|null $value
+     * @param  bool        $recursive
      * @return Collection
      */
-    public function children($name = null)
+    public function children($name = null, $value = null, $recursive = false)
     {
-        $query = $this->directives;
+        $children = $this->children;
 
         if ($name !== null) {
-            $query = $query->where('name', $name)->values();
+            $name = self::snakeCase($name);
+
+            $children = $children->where('name', $name);
         }
 
-        return $query;
+        if ($value !== null) {
+            $children = $children->where('value', $value);
+        }
+
+        if ($recursive === true) {
+            foreach ($this->children as $directive) {
+                $children = $children->merge($directive->children($name, $value, true));
+            }
+        }
+
+        return $children->values();
     }
 
     /**
-     * @return null|string
+     * Get the directive's comment.
+     *
+     * @return mixed
      */
     public function comment()
     {
@@ -150,122 +174,111 @@ class Directive implements Arrayable, Jsonable
     }
 
     /**
-     * @param  string $configuration
+     * Remove one or more directives from the stack.
+     *
+     * @param  Collection|array|Directive|string|null $name
      * @return Directive
      */
-    public static function fromString($configuration = '')
+    public function detach($name = null)
     {
-        $instance = new static;
+        $collection = $directive = $name;
 
-        return $instance->load($configuration);
-    }
-
-    /**
-     * @param  string $name
-     * @return Directive|null
-     */
-    public function get($name)
-    {
-        return $this->has($name) ? $this->children($name)->first() : null;
-    }
-
-    /**
-     * @param  string $name
-     * @return bool
-     */
-    public function has($name)
-    {
-        return $this->directives->contains('name', $name);
-    }
-
-    /**
-     * @return bool
-     */
-    public function hasChildren()
-    {
-        return !$this->directives->isEmpty();
-    }
-
-    /**
-     * @return bool
-     */
-    public function hasComment()
-    {
-        return !empty($this->comment);
-    }
-
-    /**
-     * @return bool
-     */
-    public function hasName()
-    {
-        return !empty($this->name);
-    }
-
-    /**
-     * @return bool
-     */
-    public function hasParent()
-    {
-        return $this->parent !== null;
-    }
-
-    /**
-     * @return bool
-     */
-    public function hasValue()
-    {
-        return !empty($this->value);
-    }
-
-    /**
-     * @param  string $indent
-     * @param  int    $indentSize
-     * @return string
-     */
-    public static function indent($indent = '', $indentSize = 4)
-    {
-        return $indent . str_repeat(' ', $indentSize);
-    }
-
-    /**
-     * @return bool
-     */
-    public function isRoot()
-    {
-        return !$this->hasParent();
-    }
-
-    /**
-     * @param  string $configuration
-     * @return Directive
-     */
-    public function load($configuration = '')
-    {
-        $configuration = str_replace(["\r\n", "\n\r", "\r"], "\n", $configuration);
-        $configuration = preg_replace('/  +|\t/', ' ', $configuration);
-
-        $this->builder = $this;
-
-        foreach (explode("\n", $configuration) as $line) {
-            $line = trim($line);
-
-            $this->searchForOpeningSection($line)
-                ->searchForComment($line)
-                ->searchForClosingSection($line)
-                ->searchForSingleLine($line);
+        if (is_array($collection) || $collection instanceof Collection) {
+            foreach ($collection as $directive) {
+                $this->detach($directive);
+            }
         }
 
-        $this->name = $this->builder->name();
-        $this->value = $this->builder->value();
-        $this->comment = $this->builder->comment();
-        $this->directives = $this->builder->children();
+        if ($directive instanceof Directive) {
+            $key = $this->children->search($directive, true);
+
+            if ($key !== false) {
+                $this->children->forget($key);
+
+                $directive->parent = null;
+            }
+        }
+
+        if (is_string($name) && $this->hasChildren($name)) {
+            $this->detach($this->children($name));
+        }
+
+        if ($directive === null) {
+            $this->parent()->detach($this);
+        }
 
         return $this;
     }
 
     /**
-     * @return null|string
+     * Convert a given string to a new directive.
+     *
+     * @param  string $nginxConfig
+     * @return Directive
+     */
+    public static function fromString($nginxConfig = '')
+    {
+        $nginxConfig = str_replace(["\r\n", "\n\r", "\r"], "\n", $nginxConfig);
+        $nginxConfig = preg_replace('/  +|\t/', ' ', $nginxConfig);
+
+        $instance = new self;
+
+        $instance->builder = new self;
+
+        foreach (explode("\n", $nginxConfig) as $line) {
+            $instance->parse(trim($line));
+        }
+
+        $instance->setName($instance->builder->name());
+        $instance->setValue($instance->builder->value());
+        $instance->setComment($instance->builder->comment());
+        $instance->attach($instance->builder->children());
+        
+        $instance->builder = null;
+
+        return $instance;
+    }
+
+    /**
+     * Determine if the directive has children
+     * optionally filtered by name and/or value.
+     *
+     * @param  string|null $name
+     * @param  string|null $value
+     * @param  bool        $recursive
+     * @return bool
+     */
+    public function hasChildren($name = null, $value = null, $recursive = false)
+    {
+        return !$this->children($name, $value, $recursive)->isEmpty();
+    }
+
+    /**
+     * Determine if the directive has a parent.
+     *
+     * @return bool
+     */
+    public function hasParent()
+    {
+        return $this->parent() !== null;
+    }
+
+    /**
+     * Add a level of indentation.
+     *
+     * @param  int    $size
+     * @param  string $indentation
+     * @return string
+     */
+    protected static function indent($size = 4, $indentation = '')
+    {
+        return $indentation . str_repeat(' ', $size);
+    }
+
+    /**
+     * Get the name of the directive.
+     *
+     * @return mixed
      */
     public function name()
     {
@@ -273,6 +286,8 @@ class Directive implements Arrayable, Jsonable
     }
 
     /**
+     * Get the parent of the directive.
+     *
      * @return Directive
      */
     public function parent()
@@ -281,73 +296,53 @@ class Directive implements Arrayable, Jsonable
     }
 
     /**
-     * @param  Directive|null|string $name
-     * @param  null|string           $value
-     * @param  null|string           $comment
+     * @param  string $line
      * @return Directive
      */
-    public function prepend($name = null, $value = null, $comment = null)
+    protected function parse($line)
     {
-        $this->append($name, $value, $comment);
-
-        $directive = $this->directives->pop();
-
-        $this->directives->prepend($directive);
-
-        return $this;
+        return $this->reformatInlineBlock($line)
+            ->searchForOpeningSection($line)
+            ->searchForComment($line)
+            ->searchForClosingSection($line)
+            ->searchForOneLiner($line);
     }
 
     /**
-     * @param  Directive $directive
+     * @param  string $line
      * @return Directive
      */
-    public function remove(Directive $directive)
+    protected function reformatInlineBlock($line)
     {
-        $key = $this->directives->search($directive, true);
+        if (preg_match('/^(.*) ?{ ?(.*) ?}( ?# ?(.*))?$/', $line, $matches)) {
+            $block = [$matches[1] . '{'];
 
-        if ($key !== false) {
-            $this->directives->pull($key);
+            $oneLiners = explode(';', $matches[2]);
+
+            foreach ($oneLiners as $oneLiner) {
+                $block[] = $oneLiner . ';';
+            }
+
+            $comment = array_key_exists(4, $matches) && $matches[4] !== '' ? ' # ' . $matches[4] : null;
+
+            $block[] = '}' . $comment;
+
+            foreach ($block as $blockLine) {
+                $this->parse($blockLine);
+            }
         }
 
         return $this;
     }
 
     /**
+     * Get the farthest ancestor of the directive.
+     *
      * @return Directive
      */
     public function root()
     {
-        return $this->isRoot() ? $this : $this->parent()->root();
-    }
-
-    /**
-     * @param  string $name
-     * @return Collection
-     */
-    public function search($name)
-    {
-        $directives = new Collection;
-
-        if ($this->has($name)) {
-            $directives = $directives->merge($this->children($name));
-        }
-
-        if ($this->hasChildren()) {
-            $this->directives->each(function (Directive $directive) use ($name, &$directives) {
-                $directives = $directives->merge($directive->search($name));
-            });
-        }
-
-        return $directives;
-    }
-
-    /**
-     * @param  string $name
-     * @return Directive|null
-     */
-    public function find($name)
-    {
-        return $this->search($name)->first();
+        return !$this->hasParent() ? $this : $this->parent()->root();
     }
 
     /**
@@ -359,8 +354,8 @@ class Directive implements Arrayable, Jsonable
         if (preg_match('/^}( ?# ?(.*))?$/', $line, $matches)) {
             $this->builder = $this->builder->parent();
 
-            if (array_key_exists(2, $matches)) {
-                $this->builder->add(null, null, $matches[2]);
+            if (array_key_exists(2, $matches) && $matches[2] !== '') {
+                $this->builder->attach(null, null, $matches[2]);
             }
         }
 
@@ -374,7 +369,22 @@ class Directive implements Arrayable, Jsonable
     protected function searchForComment($line)
     {
         if (preg_match('/^# ?(.*)$/', $line, $matches)) {
-            $this->builder->add(null, null, $matches[1]);
+            $this->builder->attach(null, null, $matches[1]);
+        }
+
+        return $this;
+    }
+
+    /**
+     * @param  string $line
+     * @return Directive
+     */
+    protected function searchForOneLiner($line)
+    {
+        if (preg_match('/^(\w+) (.+);( ?# ?(.*))?$/', $line, $matches)) {
+            $comment = array_key_exists(4, $matches) && $matches[4] !== '' ? $matches[4] : null;
+
+            $this->builder->attach($matches[1], $matches[2], $comment);
         }
 
         return $this;
@@ -387,9 +397,10 @@ class Directive implements Arrayable, Jsonable
     protected function searchForOpeningSection($line)
     {
         if (preg_match('/^(\w+) ?(.*?) ?{( ?# ?(.*))?$/', $line, $matches)) {
-            $comment = isset($matches[4]) ? $matches[4] : null;
+            $value = array_key_exists(2, $matches) && $matches[2] !== '' ? $matches[2] : null;
+            $comment = array_key_exists(4, $matches) && $matches[4] !== '' ? $matches[4] : null;
 
-            $this->builder->add($matches[1], $matches[2], $comment);
+            $this->builder->attach($matches[1], $value, $comment);
 
             $this->builder = $this->builder->children()->last();
         }
@@ -398,25 +409,12 @@ class Directive implements Arrayable, Jsonable
     }
 
     /**
-     * @param  string $line
+     * Set the comment of the directive.
+     *
+     * @param  mixed $comment
      * @return Directive
      */
-    protected function searchForSingleLine($line)
-    {
-        if (preg_match('/^(\w+) (.+);( ?# ?(.*))?$/', $line, $matches)) {
-            $comment = isset($matches[4]) ? $matches[4] : null;
-
-            $this->builder->add($matches[1], $matches[2], $comment);
-        }
-
-        return $this;
-    }
-
-    /**
-     * @param  null|string $comment
-     * @return Directive
-     */
-    public function setComment($comment)
+    public function setComment($comment = null)
     {
         $this->comment = $comment;
 
@@ -424,10 +422,12 @@ class Directive implements Arrayable, Jsonable
     }
 
     /**
-     * @param  null|string $name
+     * Set the name of the directive.
+     *
+     * @param  mixed $name
      * @return Directive
      */
-    public function setName($name)
+    public function setName($name = null)
     {
         $this->name = $name;
 
@@ -435,21 +435,12 @@ class Directive implements Arrayable, Jsonable
     }
 
     /**
-     * @param  Directive $directive
+     * Set the value of the directive.
+     *
+     * @param  mixed $value
      * @return Directive
      */
-    public function setParent(Directive $directive)
-    {
-        $this->parent = $directive;
-
-        return $this;
-    }
-
-    /**
-     * @param  string $value
-     * @return Directive
-     */
-    public function setValue($value)
+    public function setValue($value = null)
     {
         $this->value = $value;
 
@@ -462,7 +453,7 @@ class Directive implements Arrayable, Jsonable
      * @param  string $value
      * @return string
      */
-    public static function snakeCase($value)
+    protected static function snakeCase($value)
     {
         if (!ctype_lower($value)) {
             $value = mb_strtolower(preg_replace(['/\s+/u', '/(.)(?=[A-Z])/u'], ['', '$1_'], $value), 'UTF-8');
@@ -472,22 +463,24 @@ class Directive implements Arrayable, Jsonable
     }
 
     /**
-     * Convert the configuration to an array.
+     * Convert the directive to an array.
      *
      * @return array
      */
     public function toArray()
     {
         return [
-            'name'       => $this->name(),
-            'value'      => $this->value(),
-            'comment'    => $this->comment(),
-            'directives' => $this->children()->toArray(),
+            'name'     => $this->name(),
+            'value'    => $this->value(),
+            'comment'  => $this->comment(),
+            'children' => $this->children()->toArray(),
         ];
     }
 
     /**
-     * Convert the configuration to JSON.
+     * Convert the directive to JSON.
+     *
+     * @link http://php.net/manual/en/function.json-encode.php
      *
      * @param  int $options
      * @return string
@@ -498,58 +491,71 @@ class Directive implements Arrayable, Jsonable
     }
 
     /**
-     * Convert the configuration to a string.
+     * Convert the directive to a string.
      *
-     * @param  int    $indentSize
-     * @param  string $indent
+     * @param  int    $size
+     * @param  string $indentation
      * @return string
      */
-    public function toString($indentSize = 4, $indent = '')
+    public function toString($size = 4, $indentation = '')
     {
         $config = '';
 
         $line = $this->name();
-        $line = $this->hasValue() ? $line . ' ' . $this->value() : $line;
-        $line = !$this->isRoot() && $this->hasChildren() ? $line . ' {' : $line . ';';
-        if (!$this->hasName()) {
-            $line = rtrim($line, ';');
+
+        if ($this->value() !== null) {
+            $line .= ' ' . $this->value();
         }
-        $line = $this->hasComment() ? $line . ' # ' . $this->comment() : $line;
+
+        if ($this->hasChildren() && $this->hasParent()) {
+            $line .= ' {';
+        } elseif ($this->name() !== null) {
+            $line .= ';';
+        }
+
+        if ($this->comment() !== null) {
+            $line .= ' # ' . $this->comment();
+        }
+
         $line = trim($line, ' ');
 
-        $config .= $indent . $line . "\n";
+        $config .= $indentation . $line . "\n";
 
-        if (!$this->isRoot()) {
-            $indent = self::indent($indent, $indentSize);
+        if ($this->hasParent()) {
+            $indentation = self::indent($size, $indentation);
         }
 
         foreach ($this->children() as $directive) {
-            $config .= $directive->toString($indentSize, $indent);
+            $config .= $directive->toString($size, $indentation);
         }
 
-        if (!$this->isRoot()) {
-            $indent = self::unindent($indent, $indentSize);
+        if ($this->hasParent()) {
+            $indentation = self::unindent($size, $indentation);
         }
 
-        if (!$this->isRoot() && $this->hasChildren()) {
-            $config .= $indent . '}' . "\n";
+        if ($this->hasChildren() && $this->hasParent()) {
+            $config .= $indentation . '}' . "\n";
         }
 
-        return $this->isRoot() ? ltrim($config) : $config;
+        return !$this->hasParent() ? ltrim($config) : $config;
     }
 
     /**
-     * @param  string $indent
-     * @param  int    $indentSize
+     * Remove a level of indentation.
+     *
+     * @param  int    $size
+     * @param  string $indentation
      * @return string
      */
-    public static function unindent($indent = '', $indentSize = 4)
+    protected static function unindent($size = 4, $indentation = '')
     {
-        return substr($indent, 0, -$indentSize);
+        return substr($indentation, 0, -$size);
     }
 
     /**
-     * @return null|string
+     * Get the value of the directive.
+     *
+     * @return mixed
      */
     public function value()
     {

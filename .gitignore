@@ -1,5 +1,5 @@
 .idea
+.c9
 build
 composer.lock
-docs
 vendor
