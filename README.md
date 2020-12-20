@@ -6,10 +6,7 @@ Directive helps you to manipulate Nginx configurations in PHP with ease.
 
 ## Requirements
 
-The following versions of PHP are supported by this version.
-
-* PHP 7.3
-* PHP 8.0
+PHP 7.3 > 8.0
 
 ## Installation
 
