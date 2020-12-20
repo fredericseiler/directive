@@ -1,17 +1,12 @@
 <?php
 
-namespace Seiler\Directive;
+namespace Seiler;
 
 use ErrorException;
 use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Contracts\Support\Jsonable;
 use Illuminate\Support\Collection;
 
-/**
- * Class Directive
- *
- * @package Seiler\Directive
- */
 class Directive implements Arrayable, Jsonable
 {
     /** @var  Directive */
@@ -117,7 +112,7 @@ class Directive implements Arrayable, Jsonable
             if ($name !== null) {
                 $name = self::snakeCase($name);
             }
-            
+
             $directive = new self;
             $directive->setName($name);
             $directive->setValue($value);
@@ -233,7 +228,7 @@ class Directive implements Arrayable, Jsonable
         $instance->setValue($instance->builder->value());
         $instance->setComment($instance->builder->comment());
         $instance->attach($instance->builder->children());
-        
+
         $instance->builder = null;
 
         return $instance;
