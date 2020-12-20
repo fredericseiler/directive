@@ -49,4 +49,4 @@ file_put_contents('/path/to/nginx/config/file.conf', $directive);
 
 The MIT License (MIT). Please see [License File](LICENSE.md) for more information.
 
-[ico-license]: https://img.shields.io/packagist/l/directive/directive.svg?style=flat-square
+[ico-license]: https://img.shields.io/packagist/l/seiler/directive.svg?style=flat-square
